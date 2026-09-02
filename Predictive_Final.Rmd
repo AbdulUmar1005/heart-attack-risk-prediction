@@ -1,0 +1,512 @@
+#Step 1, loading, converting and removing country as its a character
+```{r}
+library(dplyr)
+library(caret)
+
+data <- read.csv("Merged_Preprocessed_Without_Scalling.csv")
+
+data$Heart_Attack_Risk <- factor(data$Heart_Attack_Risk)
+
+data$Country <- NULL
+
+str(data)
+summary(data)
+```
+
+```{r}
+set.seed(123)
+
+index <- createDataPartition(data$Heart_Attack_Risk, p = 0.7, list = FALSE)
+
+train_data <- data[index, ]
+test_data  <- data[-index, ]
+
+nrow(train_data)
+nrow(test_data)
+
+```
+
+
+```{r}
+# STEP 3 — Logistic Regression Model
+logit_model <- glm(Heart_Attack_Risk ~ ., 
+                   data = train_data,
+                   family = binomial)
+
+summary(logit_model)
+
+```
+#Interpretation of Logistic Regression Results
+
+#The logistic regression model identified resting heart rate and income as statistically significant predictors of heart attack risk (p < 0.05). Higher resting heart rate showed a positive association with risk (β = 0.0036, p = 0.0011), consistent with clinical literature linking tachycardia to increased cardiovascular strain. Cholesterol (p = 0.057) and sleep duration (p = 0.058) showed borderline significance, indicating potential associations that warrant further investigation. Other clinical and lifestyle variables, including age, diabetes, smoking, and obesity, were not statistically significant in this dataset, likely due to dataset variability and overlapping effects among predictors.
+
+
+```{r}
+logit_prob <- predict(logit_model, newdata = test_data, type = "response")
+
+logit_pred <- ifelse(logit_prob > 0.5, 1, 0)
+logit_pred <- factor(logit_pred, levels = c(0,1))
+
+confusionMatrix(logit_pred, test_data$Heart_Attack_Risk)
+
+```
+
+#Now trying on train data
+```{r}
+logit_prob <- predict(logit_model, newdata = train_data, type = "response")
+
+logit_pred <- ifelse(logit_prob > 0.5, 1, 0)
+logit_pred <- factor(logit_pred, levels = c(0,1))
+
+confusionMatrix(logit_pred, train_data$Heart_Attack_Risk)
+```
+
+
+```{r}
+test_data$Heart_Attack_Risk <- relevel(test_data$Heart_Attack_Risk, ref = "1")
+
+confusionMatrix(logit_pred, test_data$Heart_Attack_Risk, positive = "1")
+
+```
+
+
+```{r}
+
+library(C50)
+library(caret)
+
+```
+
+#Training the Decision Tree Model
+
+```{r}
+tree_model <- C5.0(
+  train_data[, names(train_data) != "Heart_Attack_Risk"],
+  train_data$Heart_Attack_Risk
+)
+
+summary(tree_model)
+
+```
+
+
+```{r}
+tree_model <- C5.0(
+  x = train_data[, names(train_data) != "Heart_Attack_Risk"],
+  y = train_data$Heart_Attack_Risk,
+  trials = 10,
+  control = C5.0Control(noGlobalPruning = TRUE, minCases = 30)
+)
+
+summary(tree_model)
+
+```
+
+```{r}
+tree_pred <- predict(tree_model, test_data)
+confusionMatrix(tree_pred, test_data$Heart_Attack_Risk)
+
+```
+
+
+
+```{r}
+tune_grid <- expand.grid(cp = seq(0.0001, 0.05, by = 0.005))
+set.seed(123)
+tuned_model <- train(
+  Heart_Attack_Risk ~ .,
+  data = train_data,
+  method = "rpart",
+  trControl = trainControl(method = "cv", number = 10),
+  tuneGrid = tune_grid
+)
+tuned_model$bestTune
+plot(tuned_model)
+pred <- predict(tuned_model, test_data)
+confusionMatrix(pred, test_data$Heart_Attack_Risk)
+
+```
+
+
+```{r}
+install.packages("randomForest")
+library(randomForest)
+
+```
+
+
+
+```{r}
+set.seed(123)
+rf_model <- randomForest(
+  Heart_Attack_Risk ~ .,
+  data = train_data,
+  ntree = 500,
+  mtry = 5,
+  importance = TRUE
+)
+rf_model
+
+```
+
+
+
+
+```{r}
+rf_pred <- predict(rf_model, test_data)
+confusionMatrix(rf_pred, test_data$Heart_Attack_Risk)
+
+```
+
+
+```{r}
+importance(rf_model)
+varImpPlot(rf_model)
+
+```
+
+
+
+#Objective 2 Clinical vs Lifestyle Models
+
+```{r}
+# Clinical variables
+clinical_vars <- c(
+  "Age", "Sex", "Cholesterol", "Triglycerides",
+  "BP_Systolic", "BP_Diastolic", "Heart_Rate", "BMI",
+  "Diabetes", "Family_History", "Previous_Heart_Problems",
+  "Medication_Use", "Heart_Attack_Risk"
+)
+
+# Subset the data
+clinical_data <- data[, clinical_vars]
+
+# Split clinical-only data into train/test
+set.seed(123)
+index_clin <- createDataPartition(clinical_data$Heart_Attack_Risk, p = 0.7, list = FALSE)
+
+clinical_train <- clinical_data[index_clin, ]
+clinical_test  <- clinical_data[-index_clin, ]
+
+```
+
+
+```{r}
+clinical_logit <- glm(
+  Heart_Attack_Risk ~ ., 
+  data = clinical_train, 
+  family = binomial
+)
+
+summary(clinical_logit)
+
+```
+
+
+```{r}
+clinical_logit <- glm(
+  Heart_Attack_Risk ~ ., 
+  data = clinical_train, 
+  family = binomial
+)
+
+summary(clinical_logit)
+
+```
+
+
+```{r}
+clinical_prob <- predict(clinical_logit, newdata = clinical_test, type = "response")
+clinical_pred <- ifelse(clinical_prob > 0.5, 1, 0)
+clinical_pred <- factor(clinical_pred, levels = c(0,1))
+
+```
+
+
+```{r}
+confusionMatrix(clinical_pred, clinical_test$Heart_Attack_Risk, positive = "1")
+
+```
+#The clinical-only logistic regression model identified heart rate as the only statistically significant clinical predictor of heart attack risk (p = 0.0018). Higher resting heart rate was positively associated with increased odds of being at risk, which aligns with medical literature on cardiovascular stress. Cholesterol showed a borderline association (p = 0.056), suggesting a possible but weak contribution. Other clinical indicators such as age, BMI, blood pressure, diabetes, triglycerides, and family history were not statistically significant in this dataset, likely due to overlapping distributions and limited separability between risk groups. These findings suggest that clinical factors alone do not provide strong predictive power for heart attack risk in this dataset.
+
+#OJECTIVE 2 (Part 2): Lifestyle-Only Logistic Regression
+
+
+
+```{r}
+# Lifestyle variables
+lifestyle_vars <- c(
+  "Smoking", "Alcohol_Consumption", "Diet", "Stress_Level",
+  "Sedentary_Hours_Per_Day", "Exercise_Hours_Per_Week",
+  "Physical_Activity_Days_Per_Week", "Sleep_Hours_Per_Day",
+  "Income", "Obesity", "Heart_Attack_Risk"
+)
+
+# Subset the data
+lifestyle_data <- data[, lifestyle_vars]
+
+```
+
+
+```{r}
+set.seed(123)
+index_life <- createDataPartition(lifestyle_data$Heart_Attack_Risk, p = 0.7, list = FALSE)
+
+lifestyle_train <- lifestyle_data[index_life, ]
+lifestyle_test  <- lifestyle_data[-index_life, ]
+
+```
+
+
+```{r}
+lifestyle_logit <- glm(
+  Heart_Attack_Risk ~ ., 
+  data = lifestyle_train, 
+  family = binomial
+)
+
+summary(lifestyle_logit)
+
+```
+
+
+```{r}
+lifestyle_prob <- predict(lifestyle_logit, newdata = lifestyle_test, type = "response")
+
+lifestyle_pred <- ifelse(lifestyle_prob > 0.5, 1, 0)
+lifestyle_pred <- factor(lifestyle_pred, levels = c(0,1))
+
+```
+
+#Confusion Matrix
+
+```{r}
+confusionMatrix(lifestyle_pred, lifestyle_test$Heart_Attack_Risk, positive = "1")
+
+```
+#Two separate logistic regression models were developed using clinical-only and lifestyle-only variables to determine which group offers stronger predictive power for heart attack risk. The clinical-only model achieved 63.6% accuracy with a sensitivity of 0.1%, identifying heart rate as the only statistically significant clinical predictor (p < 0.01). Cholesterol demonstrated a borderline effect. In contrast, the lifestyle-only model achieved 63.6% accuracy with 0% sensitivity, with income emerging as the lone significant lifestyle predictor (p < 0.05), likely reflecting dataset artifacts rather than a meaningful clinical relationship. Lifestyle factors such as smoking, alcohol use, diet, stress, sedentary behavior, exercise, and sleep showed no significant statistical contribution. Overall, the clinical model performed slightly better, but both models struggled to identify high-risk individuals, demonstrating that heart attack prediction in this dataset requires combined variables rather than isolated clinical or lifestyle predictors.
+
+
+#Objective 3 Subgroup Fairness
+
+# MALE vs FEMALE
+
+
+```{r}
+test_male   <- test_data[test_data$Sex == 1, ]
+test_female <- test_data[test_data$Sex == 0, ]
+
+pred_male   <- predict(rf_model, test_male)
+pred_female <- predict(rf_model, test_female)
+
+cm_male   <- confusionMatrix(pred_male, test_male$Heart_Attack_Risk, positive = "1")
+cm_female <- confusionMatrix(pred_female, test_female$Heart_Attack_Risk, positive = "1")
+
+cm_male
+cm_female
+
+```
+
+#Model was evaluated separately for males and females to assess fairness in predictive performance. The model achieved 62.8% accuracy for males and 64.6% for females, showing comparable overall performance. Sensitivity remained extremely low for both groups, with males at 7.32% and females at 4.44%, indicating that the model struggled to correctly identify high-risk individuals regardless of gender. Specificity was slightly higher for females (98.3%) compared to males (96.2%), meaning the model was more accurate at identifying low-risk females. Balanced accuracy values were nearly identical (approximately 51%), suggesting no major disparity between groups. Overall, the model shows no significant gender bias, but it consistently underperforms in detecting high-risk cases across both subgroups.
+
+
+#DIABETIC vs NON-DIABETIC
+
+```{r}
+test_diab     <- test_data[test_data$Diabetes == 1, ]
+test_nondiab  <- test_data[test_data$Diabetes == 0, ]
+
+pred_diab     <- predict(rf_model, test_diab)
+pred_nondiab  <- predict(rf_model, test_nondiab)
+
+cm_diab     <- confusionMatrix(pred_diab, test_diab$Heart_Attack_Risk, positive = "1")
+cm_nondiab  <- confusionMatrix(pred_nondiab, test_nondiab$Heart_Attack_Risk, positive = "1")
+
+cm_diab
+cm_nondiab
+
+
+```
+
+
+```{r}
+test_young <- test_data[test_data$Age <= 35, ]
+test_mid   <- test_data[test_data$Age > 35 & test_data$Age <= 55, ]
+test_old   <- test_data[test_data$Age > 55, ]
+
+```
+
+
+
+```{r}
+pred_young <- predict(rf_model, test_young)
+pred_mid   <- predict(rf_model, test_mid)
+pred_old   <- predict(rf_model, test_old)
+
+```
+
+
+
+```{r}
+cm_young <- confusionMatrix(pred_young, test_young$Heart_Attack_Risk, positive = "1")
+cm_mid   <- confusionMatrix(pred_mid, test_mid$Heart_Attack_Risk, positive = "1")
+cm_old   <- confusionMatrix(pred_old, test_old$Heart_Attack_Risk, positive = "1")
+
+cm_young
+cm_mid
+cm_old
+
+```
+#EDA
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+str(Heart)
+
+summary(Heart)
+
+ggplot(Heart, aes(x = Age)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Age Distribution", x = "Age", y = "Count")
+
+ggplot(Heart, aes(x = Cholesterol)) +
+  geom_histogram(fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Cholesterol Distribution", x = "Cholesterol", y = "Count")
+
+ggplot(Heart, aes(x = Triglycerides)) +
+  geom_histogram(fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Triglycerides Distribution", x = "Triglycerides", y = "Count")
+
+ggplot(Heart, aes(x = Heart_Rate)) +
+  geom_histogram(fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "Heart Rate Distribution", x = "Heart Rate", y = "Count")
+
+ggplot(Heart, aes(x = BMI)) +
+  geom_histogram(fill = "steelblue", color = "white") +
+  theme_minimal() +
+  labs(title = "BMI Distribution", x = "BMI", y = "Count")
+
+
+ggplot(Heart, aes(y = Cholesterol)) +
+  geom_boxplot(fill = "tomato") +
+  theme_minimal() +
+  labs(title = "Cholesterol Outliers", y = "Cholesterol")
+
+ggplot(Heart, aes(y = Heart_Rate)) +
+  geom_boxplot(fill = "tomato") +
+  theme_minimal() +
+  labs(title = "Heart Rate Outliers", y = "Heart Rate")
+
+ggplot(Heart, aes(y = BMI)) +
+  geom_boxplot(fill = "tomato") +
+  theme_minimal() +
+  labs(title = "BMI Outliers", y = "BMI")
+
+ggplot(Heart, aes(x = as.factor(Sex))) +
+  geom_bar(fill = "purple") +
+  theme_minimal() +
+  labs(title = "Gender Count", x = "Sex (0=Female, 1=Male)", y = "Count")
+
+ggplot(Heart, aes(x = as.factor(Smoking))) +
+  geom_bar(fill = "purple") +
+  theme_minimal() +
+  labs(title = "Smoking Status", x = "Smoking", y = "Count")
+
+ggplot(Heart, aes(x = as.factor(Diabetes))) +
+  geom_bar(fill = "purple") +
+  theme_minimal() +
+  labs(title = "Diabetes Count", x = "Diabetes", y = "Count")
+
+ggplot(Heart, aes(x = as.factor(Obesity))) +
+  geom_bar(fill = "purple") +
+  theme_minimal() +
+  labs(title = "Obesity Count", x = "Obesity", y = "Count")
+
+ggplot(Heart, aes(x = BP_Systolic)) +
+  geom_histogram(fill = "darkgreen", color = "white") +
+  theme_minimal() +
+  labs(title = "Systolic BP Distribution", x = "BP Systolic", y = "Count")
+
+ggplot(Heart, aes(x = BP_Diastolic)) +
+  geom_histogram(fill = "darkgreen", color = "white") +
+  theme_minimal() +
+  labs(title = "Diastolic BP Distribution", x = "BP Diastolic", y = "Count")
+
+
+ggplot(Heart, aes(x = Age, y = Heart_Rate)) +
+  geom_point(alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "Age vs Heart Rate", x = "Age", y = "Heart Rate")
+
+ggplot(Heart, aes(x = BMI, y = BP_Systolic)) +
+  geom_point(alpha = 0.5) +
+  theme_minimal() +
+  labs(title = "BMI vs BP Systolic", x = "BMI", y = "BP Systolic")
+
+
+ggplot(Heart, aes(x = as.factor(Heart_Attack_Risk), fill = as.factor(Sex))) +
+  geom_bar(position = "dodge") +
+  theme_minimal() +
+  labs(title = "Risk by Gender", x = "Heart Attack Risk", fill = "Sex")
+
+```
+
+#SENSITIVITY ANALYSIS — SIMPLE R CODE
+
+
+
+```{r}
+library(randomForest)
+
+set.seed(123)
+
+rf_model <- randomForest(
+  Heart_Attack_Risk ~ .,
+  data = train_data,
+  ntree = 500,
+  importance = TRUE
+)
+
+```
+
+
+```{r}
+rf_pred <- predict(rf_model, test_data)
+
+```
+
+
+
+```{r}
+library(caret)
+
+confusionMatrix(rf_pred, test_data$Heart_Attack_Risk, positive = "1")
+
+```
+
+
+```{r}
+importance(rf_model)
+
+varImpPlot(rf_model)
+
+```
+
+```{r}
+cm <- confusionMatrix(rf_pred, test_data$Heart_Attack_Risk, positive = "1")
+
+sensitivity_value <- cm$byClass["Sensitivity"]
+specificity_value <- cm$byClass["Specificity"]
+balanced_accuracy <- cm$byClass["Balanced Accuracy"]
+
+sensitivity_value
+specificity_value
+balanced_accuracy
+
+```
